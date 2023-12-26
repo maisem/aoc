@@ -1044,27 +1044,40 @@ func AnyKey[K comparable, V any](m map[K]V) K {
 // MinCut calculates the minimum cut of a graph using the Stoer–Wagner
 // algorithm. It returns a list of edges that make up the cut.
 func (g *Graph[T]) MinCut() []Edge[T] {
-	g2 := g.Clone()
-	start := AnyKey(g2.Nodes)
-	var minCut = math.MaxInt
-	var set = map[T][]T{}
-	var ms = map[T][]T{}
+	var (
+		g2 = g.Clone() // copy of graph to mutate
+
+		start = AnyKey(g2.Nodes) // any node
+
+		set = map[T][]T{}
+
+		curMaxSet     T
+		curMaxSetSize int
+
+		minCut = math.MaxInt
+		maxSet []T
+	)
 	for len(g2.Nodes) > 2 {
 		s, t, w := g2.minCutPhase(start)
 		if w < minCut {
 			minCut = w
-			ms = maps.Clone(set)
+			maxSet = slices.Clone(set[curMaxSet])
 		}
-		set[s] = append(set[s], t)
-		set[s] = append(set[s], set[t]...)
-		delete(set, t)
-		g2.contract(s, t)
-	}
-	var maxSet []T
-	for k, v := range ms {
-		if (len(v) + 1) > len(maxSet) {
-			maxSet = append(v, k)
+		if _, ok := set[s]; !ok {
+			set[s] = []T{s}
 		}
+		if st, ok := set[t]; !ok {
+			set[s] = append(set[s], t)
+		} else {
+			set[s] = append(set[s], st...)
+			delete(set, t)
+		}
+
+		if len(set[s]) > curMaxSetSize {
+			curMaxSet = s
+			curMaxSetSize = len(set[s])
+		}
+		g2.merge(s, t)
 	}
 
 	var cuts []Edge[T]
@@ -1076,11 +1089,16 @@ func (g *Graph[T]) MinCut() []Edge[T] {
 		}
 	}
 	if len(cuts) != minCut {
-		panic("bad")
+		panic(fmt.Sprintf("reconstructed cuts = %d; want %d", len(cuts), minCut))
 	}
 	return cuts
 }
 
+// minCutPhase runs one phase of the min cut algorithm. It returns the last two
+// nodes traversed and the weight of the cut.
+//
+// It is equivalent to running a max flow algorithm from start to any other node
+// in the graph.
 func (g *Graph[T]) minCutPhase(start T) (s, t T, wOut int) {
 	var pq PQ[T]
 	var pris = map[T]*PQI[T]{}
@@ -1112,7 +1130,7 @@ func (g *Graph[T]) minCutPhase(start T) (s, t T, wOut int) {
 	return
 }
 
-func (g *Graph[T]) contract(s, t T) {
+func (g *Graph[T]) merge(s, t T) {
 	for k, tvk := range g.Edges[t] {
 		svk := g.Edges[s][k]
 		g.RemoveEdge(t, k)
