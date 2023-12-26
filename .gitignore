@@ -1,0 +1,3 @@
+**/*.input
+go.work*
+*.code-workspace
